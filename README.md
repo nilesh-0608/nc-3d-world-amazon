@@ -1,4 +1,4 @@
-# nc-amazon
+# nc-3d-world-amazon
 
 **An Amazon rainforest you can fly through, in one 95 KB HTML file.**
 

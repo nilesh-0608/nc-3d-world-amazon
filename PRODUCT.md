@@ -83,7 +83,7 @@ message rather than a broken scene.
 
 ## Brand Commitments
 
-Named **nc-amazon**. The start screen is a naturalist's field record — serif type on aged paper,
+Named **nc-3d-world-amazon**, by nilesh-0608. The start screen is a naturalist's field record — serif type on aged paper,
 ruled lines, specimen labelling — deliberately chosen to be unlike its parent project's centred
 wordmark over a blurred scene.
 

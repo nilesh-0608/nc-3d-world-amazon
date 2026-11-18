@@ -1,6 +1,6 @@
 # The prompt this project was built from
 
-**nc-amazon** was built by prompting an AI coding agent, the same way
+**nc-3d-world-amazon** was built by prompting an AI coding agent, the same way
 [Abyssal Garden](https://github.com/Noniv/abyssal-garden) was. This file is here so
 anyone can replicate the process rather than just read the result.
 
@@ -74,7 +74,7 @@ perf report and the critic's final review.
 
 ## Prompt B — re-skinning an existing scene
 
-This is what actually produced nc-amazon. Give the agent the architecture it is
+This is what actually produced nc-3d-world-amazon. Give the agent the architecture it is
 inheriting so it does not waste a third of its budget rediscovering it.
 
 ```
