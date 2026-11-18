@@ -196,15 +196,37 @@ const FLR = -48.;                            // nominal forest floor
 const HZ0 = .042;                            // haze extinction per metre at the floor
 const HZB = .075;                            // how fast the haze thins with height (1/m)
 const FARD = 150.;                           // geometry fades into the haze by here
-const HAZE_LO = vec3f(.105, .15, .095);      // haze colour on the floor
-const HAZE_MID = vec3f(.19, .29, .14);       // haze colour under the canopy
-const HAZE_HI = vec3f(.55, .76, 1.);         // haze colour above the canopy
-const SKYC = vec3f(.14, .40, 1.1);           // zenith sky
-const SUNC = vec3f(1.75, 1.6, 1.3);          // direct sun
-const SHAFT = vec3f(1., .9, .6);             // tint of the light shafts
-const RAYK = 4.5;                            // strength of the light shafts
-const AMB_LO = vec3f(.90, 1., .66);          // skylight filtered by leaves (below the canopy)
-const AMB_HI = vec3f(.62, .80, 1.);          // open skylight (above the canopy)
+// every light has a day (_D) and a night (_N) value; g.mis.w (0 day .. 1 night, eased in main.js) blends them, so the
+// N key changes colours and intensities only: the sun direction, the shadow map and the world stay as they are
+const HAZE_LO_D = vec3f(.105, .15, .095);    // haze colour on the floor
+const HAZE_LO_N = vec3f(.012, .02, .035);
+const HAZE_MID_D = vec3f(.19, .29, .14);     // haze colour under the canopy
+const HAZE_MID_N = vec3f(.02, .035, .06);
+const HAZE_HI_D = vec3f(.55, .76, 1.);       // haze colour above the canopy
+const HAZE_HI_N = vec3f(.05, .09, .18);
+const SKYC_D = vec3f(.14, .40, 1.1);         // zenith sky
+const SKYC_N = vec3f(.02, .05, .16);
+const SUNC_D = vec3f(1.75, 1.6, 1.3);        // direct sun / moonlight (same direction)
+const SUNC_N = vec3f(.24, .32, .55);
+const SHAFT_D = vec3f(1., .9, .6);           // tint of the light shafts
+const SHAFT_N = vec3f(.4, .55, .95);
+const RAYK_D = 4.5;                          // strength of the light shafts
+const RAYK_N = 2.5;
+const AMB_LO_D = vec3f(.90, 1., .66);        // skylight filtered by leaves (below the canopy)
+const AMB_LO_N = vec3f(.14, .21, .38);
+const AMB_HI_D = vec3f(.62, .80, 1.);        // open skylight (above the canopy)
+const AMB_HI_N = vec3f(.16, .25, .50);
+const MOON = vec3f(5., 5.6, 6.5);            // disc of the moon (the disc of the sun is 30 x SUNC_D)
+fn ngt() -> f32 { return g.mis.w; }
+fn hazeLo() -> vec3f { return mix(HAZE_LO_D, HAZE_LO_N, ngt()); }
+fn hazeMid() -> vec3f { return mix(HAZE_MID_D, HAZE_MID_N, ngt()); }
+fn hazeHi() -> vec3f { return mix(HAZE_HI_D, HAZE_HI_N, ngt()); }
+fn skyc() -> vec3f { return mix(SKYC_D, SKYC_N, ngt()); }
+fn sunc() -> vec3f { return mix(SUNC_D, SUNC_N, ngt()); }
+fn shaftc() -> vec3f { return mix(SHAFT_D, SHAFT_N, ngt()); }
+fn rayk() -> f32 { return mix(RAYK_D, RAYK_N, ngt()); }
+fn ambLo() -> vec3f { return mix(AMB_LO_D, AMB_LO_N, ngt()); }
+fn ambHi() -> vec3f { return mix(AMB_HI_D, AMB_HI_N, ngt()); }
 const TAU = 6.2831853;
 const LOW = ${LV > 1};
 fn sat(x: f32) -> f32 { return clamp(x, 0., 1.); }
@@ -222,10 +244,10 @@ fn hzt(ro: vec3f, rd: vec3f, d: f32) -> f32 {
   if (abs(x) > .01) { f = (1. - exp(-x)) / x; }
   return hzd(ro.y) * d * f;
 }
-fn hazeCol(y: f32) -> vec3f { return mix(mix(HAZE_LO, HAZE_MID, ss(FLR, CAN - 2., y)), HAZE_HI, ss(CAN - 1., CAN + 5., y)); }
+fn hazeCol(y: f32) -> vec3f { return mix(mix(hazeLo(), hazeMid(), ss(FLR, CAN - 2., y)), hazeHi(), ss(CAN - 1., CAN + 5., y)); }
 fn skyCol(rd: vec3f, sun: vec3f) -> vec3f {
   let mu = max(dot(rd, sun), 0.);
-  return mix(HAZE_HI * 1.5, SKYC * 1.5, pow(sat(rd.y), .45)) + SUNC * (pow(mu, 14.) * .3 + pow(mu, 1200.) * 30.);
+  return mix(hazeHi() * 1.5, skyc() * 1.5, pow(sat(rd.y), .45)) + sunc() * pow(mu, 14.) * .3 + mix(SUNC_D * 30., MOON, ngt()) * pow(mu, 1200.);
 }
 `;
 
@@ -264,13 +286,13 @@ fn gapL(q: vec2f, l: f32) -> f32 { return gmix(textureSampleLevel(tW, sR, q / 31
 // dappled sunlight (the caustics of the ocean): 1 in a sun fleck, 0 in leaf shade, all sun above the canopy
 fn caus2(p: vec3f, d: f32) -> f32 { return mix(mix(gapF(cuv(p)), .14, ss(40., 110., d)), 1., hk(p.y)); }
 fn caus(p: vec3f, d: f32) -> vec3f { return vec3f(caus2(p, d)); }
-fn sunE(y: f32, z: f32) -> vec3f { return SUNC; }
+fn sunE(y: f32, z: f32) -> vec3f { return sunc(); }
 fn amb(p: vec3f, n: vec3f, sky: f32, z: f32) -> vec3f {
   let up = n.y * .5 + .5;
-  return mix(AMB_LO * (.3 + .7 * sky), AMB_HI, hk(p.y)) * (.3 + .7 * up * up) + vec3f(.004, .008, .004);
+  return mix(ambLo() * (.3 + .7 * sky), ambHi(), hk(p.y)) * (.3 + .7 * up * up) + vec3f(.004, .008, .004);
 }
 fn zone(p: vec3f) -> f32 { return 0.; }
-fn side(p: vec3f, n: vec3f, open: f32, z: f32) -> vec3f { return mix(AMB_LO * .45, AMB_HI * .6, hk(p.y)) * open * (1. - abs(n.y)) * .5; }
+fn side(p: vec3f, n: vec3f, open: f32, z: f32) -> vec3f { return mix(ambLo() * .45, ambHi() * .6, hk(p.y)) * open * (1. - abs(n.y)) * .5; }
 // height haze: transmittance from the closed-form optical depth, in-scatter in the colour of the layer the ray runs through
 fn fogD(c: vec3f, wp: vec3f, far: f32) -> vec3f {
   let v = wp - g.cam.xyz; let d = max(length(v), 1e-3); let rd = v / d;
@@ -481,7 +503,7 @@ struct GO { @builtin(position) cp: vec4f, @location(0) uv: vec2f, @location(1) @
   o.cp = g.vp * vec4f(w, 1.); o.uv = q;
   let z = zone(p);
   // fireflies glow on their own in the shade and flare where the sun catches them
-  let lit = .35 + 1.6 * shadow1(p) * mix(gapL(cuv(p), 1.5), 1., hk(p.y));
+  let lit = .35 + 1.6 * mix(1., .3, ngt()) * shadow1(p) * mix(gapL(cuv(p), 1.5), 1., hk(p.y));
   let e = b.z / sz;
   o.col = pal(b.y) * (.12 + tw * 1.7) * lit * e * e * exp(-hzd(p.y) * d) * ss(.4, 1.5, d) * 17.;
   return o;
@@ -630,15 +652,15 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f };
   if (g.cam.y < CAN) {
     // underside: a dark leaf mass, glowing green where it is thin (around the holes)
     let thin = sat(gp * 1.6 + a.g * .4 - .2);
-    c = mix(vec3f(.010, .028, .008), vec3f(.09, .24, .04), thin * thin) * (.6 + .8 * big.g) * (.5 + f1.g) * SUNC.g;
+    c = mix(vec3f(.010, .028, .008), vec3f(.09, .24, .04), thin * thin) * (.6 + .8 * big.g) * (.5 + f1.g) * sunc().g;
     c += amb(i.wp, vec3f(0., -1., 0.), vol(i.wp - vec3f(0., 4., 0.)).g, 0.) * vec3f(.05, .11, .03);
   } else {
     // top: what shows between the crowns' own leaves. Darker than them, mottled at leaf scale, dark towards the holes
     let s = (a.ba + b.ba * .7 + (f1.ba * 1.2 + f2.ba) * ss(90., 20., d)) * ss(320., 50., d);
     let n = normalize(vec3f(-s.x, 1., -s.y));
     let alb = mix(vec3f(.02, .07, .012), vec3f(.07, .17, .028), sat(a.g * .5 + f1.g * .7 + big.g * .4 - .25)) * (.55 + .9 * f2.g);
-    c = alb * (SUNC * sat(dot(n, L)) * 1.6 * (1. - .75 * max(f1.r, f2.r) * ss(120., 30., d)) + amb(i.wp, n, 1., 0.)) * (1. - .85 * ss(.1, .5, gp));
-    c += SUNC * alb * pow(sat(dot(n, normalize(L - V))), 24.) * .5;
+    c = alb * (sunc() * sat(dot(n, L)) * 1.6 * (1. - .75 * max(f1.r, f2.r) * ss(120., 30., d)) + amb(i.wp, n, 1., 0.)) * (1. - .85 * ss(.1, .5, gp));
+    c += sunc() * alb * pow(sat(dot(n, normalize(L - V))), 24.) * .5;
   }
   return fin(fogD(c, i.wp, 1e5));
 }
@@ -650,12 +672,35 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f };
   o.cp = vec4f(p, 1e-7, 1.);
   return o;
 }
+// ---- stars: everything worth tuning is here
+const ST_N = 90.;                            // grid cells from the zenith to the horizon (about 25000 cells in the sky)
+const ST_FILL = .16;                         // share of the cells that hold a star
+const ST_GAIN = 5.;                          // brightest star (HDR); most are far dimmer
+const ST_PX = 1.3;                           // smallest radius in pixels, so a star never falls between them
+fn h22(p: vec2f) -> vec2f { var q = fract(p.xyx * vec3f(.1031, .1030, .0973)); q += dot(q, q.yzx + 33.33); return fract((q.xx + q.yz) * q.zy); }
+// One hashed point per cell of a stereographic map of the upper hemisphere (conformal: stars stay round, and
+// 1 + rd.y >= 1 so nothing divides by zero). rd.y > 0 only.
+fn stars(rd: vec3f) -> vec3f {
+  let k = ST_N / (1. + rd.y);
+  let p = rd.xz * k; let c = floor(p);
+  let h = h22(c); let h2 = h22(c + 71.3);
+  if (h2.x > ST_FILL) { return vec3f(0.); }
+  // radius: at least ST_PX pixels of the render target (g.up.w = tan of half the view, g.res.w = 1 / height)
+  let r = min(max(.0011, ST_PX * 2. * g.up.w * g.res.w) * k, .15);
+  let v = (p - c - (.15 + .7 * h)) / r;
+  let b = h2.x / ST_FILL;
+  let tw = .75 + .25 * sin(g.cam.w * (1.5 + 4. * h2.y) + h.x * 90.);
+  return mix(vec3f(.65, .78, 1.), vec3f(1., .9, .72), h.y) * (ST_GAIN * (.06 + .94 * b * b * b * b) * tw * exp(0. - dot(v, v) * 2.5) * ss(0., .1, rd.y));
+}
 @fragment fn fsB(i: VO) -> @location(0) vec4f {
   let rd = normalize(i.wp - g.cam.xyz);
   let T = exp(-hzt(g.cam.xyz, rd, 900.));
   let hm = g.cam.y + rd.y * mix(22., 70., sat(-rd.y * 3.));
   let hc = hazeCol(hm) * mix(.5 + .5 * vol(g.cam.xyz + rd * 40.).g, 1., hk(hm));
-  return fin(skyCol(rd, g.sun.xyz) * T + hc * (1. - T));
+  var sk = skyCol(rd, g.sun.xyz);
+  // night only, and only above the horizon: by day this costs one branch
+  if (ngt() > 0. && rd.y > 0.) { sk += stars(rd) * ngt() * ngt(); }
+  return fin(sk * T + hc * (1. - T));
 }
 `;
 
@@ -667,11 +712,14 @@ fn quad(i: u32) -> vec2f { return vec2f(f32(i & 1u), f32(i >> 1u)) * 2. - 1.; }
 const FF_COL = vec3f(.62, 1., .16);          // firefly light, warm yellow-green (some lean towards FF_COL2)
 const FF_COL2 = vec3f(1., .78, .18);
 const FF_GAIN = 9.;                          // brightness of a flash at its peak (HDR: it feeds the bloom)
+const FF_GAIN_N = 25.;                       // ... and at night, when they carry the scene
 const FF_POW = 12.;                          // sharpness of the flash: higher = dark for more of the period
 const FF_SUN = .88;                          // how much of their light the sun drowns in a shaft or a sun fleck
+const FF_SUN_N = .15;                        // ... the moon drowns next to none
 const FF_HAZE = .4;                          // share of the haze extinction they suffer (1 = like a lit surface)
 const FF_FAR = 110.;                         // not drawn beyond this (m)
 const GN_GAIN = 3.;                          // gnat in full shaft light
+const GN_GAIN_N = .5;                        // ... in a moonbeam (on top of the moon being dim): they all but vanish
 const GN_DRIFT = 1.8;                        // how far a swarm's centre wanders, in swarm radii
 const GN_JIT = .04;                          // fast jitter of each gnat (m), at 4 to 7 Hz
 const GN_FAR = 70.;                          // gnats fade out by here (m)
@@ -708,13 +756,13 @@ const GN_FAR = 70.;                          // gnats fade out by here (m)
   if (fly) {
     // emissive: brightest in the shade, and the haze only takes a part of it
     sz = max(b.z, d * .003);
-    col = mix(FF_COL, FF_COL2, .5 * h.z) * (FF_GAIN * bl * (1. - FF_SUN * sun) * (b.z / sz) * exp(0. - hzd(p.y) * d * FF_HAZE));
+    col = mix(FF_COL, FF_COL2, .5 * h.z) * (mix(FF_GAIN, FF_GAIN_N, ngt()) * bl * (1. - mix(FF_SUN, FF_SUN_N, ngt()) * sun) * (b.z / sz) * exp(0. - hzd(p.y) * d * FF_HAZE));
   } else {
     // not emissive: sunlight caught in a shaft (brighter against the light), next to nothing outside it
     if (sun < .02 || d > GN_FAR) { return o; }
     sz = max(b.z, d * .0011);
     let mu = max(dot(v / d, g.sun.xyz), 0.);
-    col = SUNC * SHAFT * (GN_GAIN * sun * (1. + 2. * mu * mu * mu * mu) * (.6 + .8 * h.x) * (b.z / sz) * exp(0. - hzd(p.y) * d) * ss(GN_FAR, GN_FAR * .65, d));
+    col = sunc() * shaftc() * (mix(GN_GAIN, GN_GAIN_N, ngt()) * sun * (1. + 2. * mu * mu * mu * mu) * (.6 + .8 * h.x) * (b.z / sz) * exp(0. - hzd(p.y) * d) * ss(GN_FAR, GN_FAR * .65, d));
     k = 3.;
   }
   let w = p + (g.right.xyz * q.x + g.up.xyz * q.y) * sz;
@@ -724,7 +772,8 @@ const GN_FAR = 70.;                          // gnats fade out by here (m)
 }
 @fragment fn fsBug(i: VO) -> @location(0) vec4f {
   let r = dot(i.uv, i.uv);
-  return vec4f(min(max(i.pr.rgb * exp(0. - r * i.pr.w) * (1. - ss(.7, 1., r)), vec3f(0.)), vec3f(12.)), 0.);
+  // the ceiling rises with the night gain, or the brightest flashes would clip to a flat yellow
+  return vec4f(min(max(i.pr.rgb * exp(0. - r * i.pr.w) * (1. - ss(.7, 1., r)), vec3f(0.)), vec3f(mix(12., 30., ngt()))), 0.);
 }
 // pollen and insects: they only show where the sun reaches them, so they trace the light shafts
 @vertex fn vsSnow(@builtin(vertex_index) vi: u32, @location(0) a: vec4f) -> VO {
@@ -745,7 +794,7 @@ const GN_FAR = 70.;                          // gnats fade out by here (m)
 @fragment fn fsSnow(i: VO) -> @location(0) vec4f {
   let r = length(i.uv);
   let m = ss(1., .2, r);
-  let c = (SUNC * SHAFT * i.pr.y * 1.3 + amb(i.wp, vec3f(0., 1., 0.), vol(i.wp).g, 0.) * .05) * mix(vec3f(1.), vec3f(1., .85, .5), i.pr.z);
+  let c = (sunc() * shaftc() * i.pr.y * 1.3 + amb(i.wp, vec3f(0., 1., 0.), vol(i.wp).g, 0.) * .05) * mix(vec3f(1.), vec3f(1., .85, .5), i.pr.z);
   return vec4f(min(max(c * m * m * i.pr.x * exp(-hzd(i.wp.y) * i.pr.w), vec3f(0.)), vec3f(8.)), 0.);
 }
 `;
@@ -792,7 +841,7 @@ fn vuv(p: vec3f) -> vec3f { return (p - vec3f(-192., -56., -192.)) / vec3f(384.,
   }
   let mu = max(dot(rd, sx), 0.);
   let ph = .3 + 2. * mu * mu * mu;
-  return vec4f(min(acc * dt * RAYK * g.mis.y * ph * SHAFT * SUNC, vec3f(20.)), zl);
+  return vec4f(min(acc * dt * rayk() * g.mis.y * ph * shaftc() * sunc(), vec3f(20.)), zl);
 }
 `;
 // depth-aware 3x3 blur of the half-res shafts (hides the sampling dither)
@@ -847,7 +896,7 @@ fn sat3(x: vec3f) -> vec3f { return clamp(x, vec3f(0.), vec3f(1.)); }
   let l = mix(l0, l0 * l0 * (3. - 2. * l0), .55);
   c *= l / max(l0, 1e-4);
   c = mix(c, vec3f(l), ss(.55, 1., l) * .1);
-  c = mix(vec3f(l), c, .93) + vec3f(.008, .002, 0.);
+  c = mix(vec3f(l), c, .93) + mix(vec3f(.008, .002, 0.), vec3f(.001, .003, .008), g.mis.w);
   c = pow(max(c, vec3f(0.)), vec3f(1. / 2.2));
   let n = ign(fc.xy) + ign(fc.xy + 37.) - 1.;
   return vec4f(c + n / 255., 1.);

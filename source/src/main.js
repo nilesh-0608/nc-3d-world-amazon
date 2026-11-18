@@ -228,7 +228,11 @@ const FLYN = FLY.length / 6, FLYT = 60, LUTN = 1024, flyLUT = new Float32Array(L
 const flyPts = [];
 // per-frame float state lives in one preallocated array, so the frame loop allocates no heap numbers
 const F = new Float64Array(32), P6 = new Float64Array(6);
-const CX = 0, CY = 1, CZ = 2, YAW = 3, PIT = 4, FX = 5, FY = 6, FZ = 7, RX = 8, RZ = 9, UX = 10, UY = 11, UZ = 12, VX = 13, VY = 14, VZ = 15, TIME = 16, FLT = 17, LAST = 18, GPU = 19, HUDT = 20, SPL = 21, MX = 22, MY = 23, MZ = 24;
+const CX = 0, CY = 1, CZ = 2, YAW = 3, PIT = 4, FX = 5, FY = 6, FZ = 7, RX = 8, RZ = 9, UX = 10, UY = 11, UZ = 12, VX = 13, VY = 14, VZ = 15, TIME = 16, FLT = 17, LAST = 18, GPU = 19, HUDT = 20, SPL = 21, MX = 22, MY = 23, MZ = 24, NGT = 25, NGTT = 26;
+// day / night (N key): F[NGTT] is the choice (0 day, 1 night), F[NGT] follows it linearly over NFADE seconds and render()
+// eases it into the uniform. localStorage.abyssalNight keeps the choice, so a reload starts in it without a fade.
+const NFADE = 2;
+try { F[NGT] = F[NGTT] = localStorage.abyssalNight === '1' ? 1 : 0; } catch {}
 // aim the camera from P6 = position + look-at point
 function aim() {
   const dx = P6[3] - P6[0], dy = P6[4] - P6[1], dz = P6[5] - P6[2];
@@ -381,7 +385,7 @@ if (hasTS) {
 // ---------------------------------------------------------------- frame
 let hud = false;
 let kf = 0, kb = 0, kl = 0, kr = 0, ku = 0, kd = 0, ks = 0, mdx = 0, mdy = 0, lkx = 0, lky = 0, l2x = 0, l2y = 0, hN = 0, hMax = 0, hMin = 1e9, hPer = 1e9, hLate = 0, hTot = 0, tId = -1, tN = 0, tx0 = 0, ty0 = 0, tx = 0, ty = 0;
-const TANH = 0.6, NEAR = 0.1, EXPO = 0.62, RAYS = 0.54;
+const TANH = 0.6, NEAR = 0.1, EXPO = 0.62, EXPO_N = 0.9, RAYS = 0.54;
 const submitList = [null];
 const rowOrd = new Uint8Array(CELLS);
 // Draws the cells of a cell-sorted buffer that are in view and within [minD, maxD) (scaled by `det`, but not for the
@@ -432,7 +436,9 @@ function render() {
   m[51] = zt * zt * (3 - 2 * zt);
   // exposure opens up towards the forest floor and closes in the sun above the canopy
   let ek = (CAN + 2 - cy) / 14; ek = ek < 0 ? 0 : ek > 1 ? 1 : ek;
-  m[56] = EXPO * (0.55 + 0.45 * ek); m[57] = RAYS; m[58] = det;
+  // night (mis.w, smoothstepped): a longer exposure, and less closing above the canopy where there is no sun to close for
+  const nl = F[NGT], ng = nl * nl * (3 - 2 * nl), ex = 0.55 + 0.25 * ng;
+  m[56] = (EXPO + (EXPO_N - EXPO) * ng) * (ex + (1 - ex) * ek); m[57] = RAYS; m[58] = det; m[59] = ng;
   Q.writeBuffer(ubo, 0, UB);
   WT[0] = F[TIME]; Q.writeBuffer(uboW, 0, WT);
 
@@ -543,6 +549,7 @@ function frame(now) {
     dynN = dynT = dynG = dynGN = 0; resize();
   }
   F[TIME] += dt;
+  if (F[NGT] !== F[NGTT]) { const s = dt / NFADE; F[NGT] = F[NGT] < F[NGTT] ? min(F[NGT] + s, F[NGTT]) : max(F[NGT] - s, F[NGTT]); }
   {
     // touch: holding the finger away from where it went down keeps turning, like a joystick
     if (tId >= 0) {
@@ -579,6 +586,7 @@ const key = (e, v) => {
     default: if (v && !e.repeat) {
       if (e.code === 'KeyH') { hud = !hud; hTot = 0; hPer = 1e9; info.textContent = ''; }
       else if (e.code === 'KeyM') mute();
+      else if (e.code === 'KeyN') { F[NGTT] = F[NGTT] > 0.5 ? 0 : 1; keep('abyssalNight', F[NGTT]); }
       else if (e.code === 'Escape') ui(true);
       else if (e.code >= 'Digit1' && e.code <= 'Digit6') lookAt(...POSES[e.code.charCodeAt(5) - 49]);
     }
