@@ -26,7 +26,7 @@ device.addEventListener('uncapturederror', (e) => console.error('GPU: ' + e.erro
 // out of memory or a GPU timeout: reload a level lower, or on Low say what happened
 device.lost.then((l) => {
   if (l.reason === 'destroyed') return; // the page is closing
-  if (LV < 2) { keep('abyssal', LV + 1); location.reload(); }
+  if (LV < 2) { keep('ncam', LV + 1); location.reload(); }
   dead = body.className = 'l e'; $('s').textContent = 'The graphics device was lost. Reload the page to try again.';
 });
 const ctx = canvas.getContext('webgpu'), FMT = navigator.gpu.getPreferredCanvasFormat();
@@ -143,8 +143,8 @@ const SUN = (() => { const v = [0.27, 1, -0.24], l = hypot(...v); return v.map((
 // ---------------------------------------------------------------- world generation
 await say('Shaping the forest floor…', 0.25, 1200);
 // marks a load in progress (quality.js); leaving the page before it ends is not a crash
-keep('abyssalLoad', 1);
-addEventListener('pagehide', () => keep('abyssalLoad', ''));
+keep('ncamLoad', 1);
+addEventListener('pagehide', () => keep('ncamLoad', ''));
 let D;
 {
   const prims = primBuffer();
@@ -230,9 +230,9 @@ const flyPts = [];
 const F = new Float64Array(32), P6 = new Float64Array(6);
 const CX = 0, CY = 1, CZ = 2, YAW = 3, PIT = 4, FX = 5, FY = 6, FZ = 7, RX = 8, RZ = 9, UX = 10, UY = 11, UZ = 12, VX = 13, VY = 14, VZ = 15, TIME = 16, FLT = 17, LAST = 18, GPU = 19, HUDT = 20, SPL = 21, MX = 22, MY = 23, MZ = 24, NGT = 25, NGTT = 26;
 // day / night (N key): F[NGTT] is the choice (0 day, 1 night), F[NGT] follows it linearly over NFADE seconds and render()
-// eases it into the uniform. localStorage.abyssalNight keeps the choice, so a reload starts in it without a fade.
+// eases it into the uniform. localStorage.ncamNight keeps the choice, so a reload starts in it without a fade.
 const NFADE = 2;
-try { F[NGT] = F[NGTT] = localStorage.abyssalNight === '1' ? 1 : 0; } catch {}
+try { F[NGT] = F[NGTT] = localStorage.ncamNight === '1' ? 1 : 0; } catch {}
 // aim the camera from P6 = position + look-at point
 function aim() {
   const dx = P6[3] - P6[0], dy = P6[4] - P6[1], dz = P6[5] - P6[2];
@@ -545,7 +545,7 @@ function frame(now) {
       const end = k < 1 ? (det > DETMIN ? mid : PIXMIN) : det < 1 ? mid : top;
       pix *= k; if (k < 1 ? pix < end : pix > end) pix = end;
     } else { det *= sqrt(k); det = det < DETMIN ? DETMIN : det > 1 ? 1 : det; }
-    if (was !== pix + det) keep('abyssal', [LV, pix < top ? pix | 0 : '', det]); // nothing kept at full resolution
+    if (was !== pix + det) keep('ncam', [LV, pix < top ? pix | 0 : '', det]); // nothing kept at full resolution
     dynN = dynT = dynG = dynGN = 0; resize();
   }
   F[TIME] += dt;
@@ -586,7 +586,7 @@ const key = (e, v) => {
     default: if (v && !e.repeat) {
       if (e.code === 'KeyH') { hud = !hud; hTot = 0; hPer = 1e9; info.textContent = ''; }
       else if (e.code === 'KeyM') mute();
-      else if (e.code === 'KeyN') { F[NGTT] = F[NGTT] > 0.5 ? 0 : 1; keep('abyssalNight', F[NGTT]); }
+      else if (e.code === 'KeyN') { F[NGTT] = F[NGTT] > 0.5 ? 0 : 1; keep('ncamNight', F[NGTT]); }
       else if (e.code === 'Escape') ui(true);
       else if (e.code >= 'Digit1' && e.code <= 'Digit6') lookAt(...POSES[e.code.charCodeAt(5) - 49]);
     }
@@ -614,30 +614,30 @@ const touch = (e) => {
 for (const n of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) canvas.addEventListener(n, touch, { passive: false });
 
 // ---------------------------------------------------------------- menu
-// The scene keeps rendering (blurred by CSS) behind the menu. Esc, losing the mouse or the corner button open it.
+// The scene keeps rendering, unblurred, behind the field record card. Esc, losing the mouse or the corner button open it.
 let menu = true;
-const bDive = $('d');
+const bGo = $('d');
 const ui = (m) => {
   if (dead) return;
   menu = m; body.className = m ? 'm' : document.pointerLockElement ? 'g p' : 'g';
-  // focus the dive button so Enter works (delayed: it can't take focus while still hidden)
-  if (m) { release(); setTimeout(() => menu && bDive.focus(), 100); } else document.activeElement.blur();
+  // focus the survey button so Enter works (delayed: it can't take focus while still hidden)
+  if (m) { release(); setTimeout(() => menu && bGo.focus(), 100); } else document.activeElement.blur();
 };
 const go = () => {
-  sound(); ui(false); bDive.textContent = 'Resume';
+  sound(); ui(false); bGo.textContent = 'Resume survey';
   // phones: go fullscreen and ask for landscape; where that is refused the CSS rotation still applies
   if (mob) document.documentElement.requestFullscreen?.()?.then(() => screen.orientation.lock('landscape')).catch(() => 0);
   if (!mob) capture();
 };
-bDive.onclick = go; $('o').onclick = () => ui(true);
+bGo.onclick = go; $('o').onclick = () => ui(true);
 // detail buttons: the current level is lit, the others reload the page with theirs
-$('q').querySelectorAll('button').forEach((b, i) => { if (i === 2 - LV) b.className = 'on'; else b.onclick = () => { keep('abyssal', 2 - i); location.reload(); }; });
+$('q').querySelectorAll('button').forEach((b, i) => { if (i === 2 - LV) b.className = 'on'; else b.onclick = () => { keep('ncam', 2 - i); location.reload(); }; });
 document.addEventListener('pointerlockchange', () => ui(!document.pointerLockElement));
 
 // draw the first frame and wait for the GPU to finish it (pipelines get compiled on first use) before the reveal
 lookAt(...POSES[0]);
 await say('Letting the light in…', 1, 400);
 render(); await Q.onSubmittedWorkDone();
-setTimeout(keep, 15e3, 'abyssalLoad', ''); // the load counts as survived after 15 s of frames
+setTimeout(keep, 15e3, 'ncamLoad', ''); // the load counts as survived after 15 s of frames
 ui(true);
 requestAnimationFrame((t) => { F[LAST] = t; requestAnimationFrame(frame); });

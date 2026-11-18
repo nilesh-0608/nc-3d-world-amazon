@@ -544,7 +544,7 @@ struct GO { @builtin(position) cp: vec4f, @location(0) uv: vec2f, @location(1) @
 }
 `;
 
-// ---------------------------------------------------------------- fish + mantas
+// ---------------------------------------------------------------- butterflies (vsFish) + birds (vsManta)
 const W_ANIM = S_B + /*wgsl*/`
 struct VI { @location(0) p: vec3f, @location(1) n: vec4f, @location(2) a: vec4f, @location(3) b: vec4f };
 struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n: vec3f, @location(2) op: vec3f, @location(3) @interpolate(flat) sd: f32, @location(4) lt: f32 };
@@ -552,27 +552,53 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   var o: VO;
   let s = i.b.x; let h = vec3f(hs(s), hs(s + .37), hs(s + .71));
   let R = i.a.w; let t = g.cam.w;
-  let ta = t * i.b.y + i.b.w * 6.3 + (h.x - .5) * (26. / R);
+  // surging speed along the orbit: a time warp whose rate stays positive (1 - .45 * 1.1 - .15 * 2.3 = .16), so the
+  // insect lurches forward and stalls but never flies backwards
+  let tw = t + .45 * sin(t * 1.1 + s * 20.) + .15 * sin(t * 2.3 + s * 47.);
+  let ta = tw * i.b.y + i.b.w * 6.3 + (h.x - .5) * (26. / R);
   let ph = i.b.w * 17.;
   let P = i.a.xyz + vec3f(R * cos(ta), 2.2 * sin(3. * ta + ph), R * .6 * sin(ta));
-  let T = normalize(vec3f(-R * sin(ta), 6.6 * cos(3. * ta + ph), R * .6 * cos(ta))) * sign(i.b.y);
+  let T0 = normalize(vec3f(-R * sin(ta), 6.6 * cos(3. * ta + ph), R * .6 * cos(ta))) * sign(i.b.y);
+  let S0 = normalize(cross(vec3f(0., 1., 0.), T0)); let U0 = cross(T0, S0);
+  // the body yaws about the flight direction instead of tracking it
+  let T = normalize(T0 + S0 * (.4 * sin(t * 2.9 + s * 33.) + .2 * sin(t * 6.1 + s * 71.)));
   let S = normalize(cross(vec3f(0., 1., 0.), T)); let Up = cross(T, S);
-  let off = S * ((h.y - .5) * 5. + sin(t * .6 + s * 40.) * .5) + Up * ((h.z - .5) * 3.2 + cos(t * .5 + s * 31.) * .4);
+  // wingbeat: 6 - 8.4 Hz per individual, with short glides on raised wings (fl = 0)
+  let fp = t * (38. + 15. * h.x) + s * 50.;
+  let fl = ss(-.6, -.25, sin(t * (1.1 + h.y) + s * 90.));
+  // erratic flight: a bouncing bob (|sin| kicks upward), two faster wobbles, sideways jitter, and the body dropping
+  // as the wings rise
+  let bob = .3 * (abs(sin(t * 2.1 + s * 61.)) - .64) + .14 * sin(t * 4.3 + s * 23.) + .06 * sin(t * 7.9 + s * 91.) - .025 * fl * sin(fp);
+  let jit = .28 * sin(t * 3.1 + s * 77.) + .12 * sin(t * 6.7 + s * 13.);
+  let off = S0 * ((h.y - .5) * 5. + sin(t * .6 + s * 40.) * .5 + jit) + U0 * ((h.z - .5) * 3.2 + cos(t * .5 + s * 31.) * .4) + vec3f(0., bob, 0.);
   var l = i.p * i.b.z * (.75 + .5 * h.z);
-  l.z += sin(t * 9. + s * 50. + l.x * 5.) * .22 * (.25 * i.b.z - l.x);
+  // flap: rotate each wing about the body axis (mesh x). aux = signed distance from the axis: its sign mirrors the
+  // two sides, its size delays the tip, and the hindwing (x < 0) trails the forewing. 0 on the body: no rotation.
+  let d = abs(i.n.w);
+  let th = sign(i.n.w) * (.3 + fl * sin(fp - d * .7 + i.p.x * 1.2));
+  let cs = cos(th); let sn = sin(th);
+  l = vec3f(l.x, l.y * cs + l.z * sn, l.z * cs - l.y * sn);
+  let n = vec3f(i.n.x, i.n.y * cs + i.n.z * sn, i.n.z * cs - i.n.y * sn);
   let w = P + off + T * l.x + Up * l.y + S * l.z;
-  o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = T * i.n.x + Up * i.n.y + S * i.n.z; o.op = i.p; o.sd = s;
+  o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = T * n.x + Up * n.y + S * n.z; o.op = i.p; o.sd = s;
   o.lt = shadow1(w);
   return o;
 }
 @fragment fn fsFish(i: VO) -> @location(0) vec4f {
-  let n = normalize(i.n); let L = g.sun.xyz; let V = normalize(g.cam.xyz - i.wp);
+  let L = g.sun.xyz; let V = normalize(g.cam.xyz - i.wp);
+  // the wings are single sheets drawn unculled: light the side that is seen
+  let ng = normalize(i.n); let fr = dot(ng, V); let n = ng * select(-1., 1., fr >= 0.);
   let z = zone(i.wp); let vv = vol(i.wp);
-  // butterflies (the fish of the ocean): morpho blue, a few yellow and orange ones
-  let hue = fract(i.sd * 7.7);
-  var alb = mix(vec3f(.04, .22, .95), vec3f(.02, .05, .20), ss(-.02, .1, abs(i.op.y) - .08));
+  // morpho blue, a few yellow and orange ones; black outer margin and body, dull brown undersides, so the colour
+  // flashes on and off with the wingbeat
+  let hue = fract(i.sd * 7.7); let az = abs(i.op.z);
+  var alb = vec3f(.04, .22, .95);
   if (hue > .6) { alb = vec3f(.95, .70, .08); }
   if (hue > .85) { alb = vec3f(.95, .30, .05); }
+  let rim = max(ss(.6, .88, az), ss(-.28, -.46, i.op.x));
+  alb = mix(alb, vec3f(.02, .03, .06), rim);
+  alb = mix(alb, vec3f(.13, .085, .05) * (1. - .5 * rim), .9 * step(fr, 0.));
+  alb = mix(alb, vec3f(.025, .02, .02), ss(.06, .035, az));
   let E = sunE(i.wp.y, z) * i.lt * caus2(i.wp, length(i.wp - g.cam.xyz));
   var c = alb * (E * (.25 + .75 * abs(dot(n, L))) + amb(i.wp, n, vv.g, z) * 1.3);
   c += E * pow(sat(dot(n, normalize(V + L))), 24.) * .8;
@@ -585,16 +611,20 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   let P = i.a.xyz + vec3f(R * cos(ta), 2.5 * sin(2. * ta + i.b.w), R * .75 * sin(ta));
   let T = normalize(vec3f(-R * sin(ta), 5. * cos(2. * ta + i.b.w) * 1., R * .75 * cos(ta))) * sign(i.b.y);
   var S = normalize(cross(vec3f(0., 1., 0.), T)); var Up = cross(T, S);
-  let bank = -.28 * sign(i.b.y);
+  let bank = -.28 * sign(i.b.y) + .07 * sin(t * .43 + i.b.w * 30.);
   let S2 = S * cos(bank) + Up * sin(bank); Up = Up * cos(bank) - S * sin(bank); S = S2;
   let u = i.n.w; let au = abs(u);
-  let fp = t * 1.25 + i.b.w * 5. - au * 1.2;
-  let amp = .36 * pow(au, 1.6);
+  // a burst of about five wingbeats, then a long glide on slightly raised wings: fe is the flap envelope over a
+  // 7 - 11 s cycle per bird. The phase runs on regardless, so the envelope only scales the amplitude.
+  let cy = fract(t / (7. + 4. * i.b.w) + i.b.x);
+  let fe = ss(0., .05, cy) * ss(.3, .22, cy);
+  // flap: y = fe * A * au^PW * sin(w t - LAG * au) + DI * au^1.5, the phase delayed along the span so the beat
+  // travels outward; sl = dy/du, differentiated from the same constants, tilts the normal
+  const A = .24; const PW = 1.25; const LAG = .55; const DI = .09;
+  let f0 = t * 15. + i.b.w * 5.; let fp = f0 - au * LAG;
   var l = i.p;
-  l.y += amp * sin(fp) - .1 * sin(t * 1.25 + i.b.w * 5.);
-  let tail = ss(-.5, -1.9, l.z) * step(au, .001);
-  l.x += tail * sin(t * .8 + l.z * 2.) * .12;
-  let sl = (.576 * pow(au, .6) * sin(fp) - .43 * pow(au, 1.6) * cos(fp)) * sign(u);
+  l.y += fe * A * pow(au, PW) * sin(fp) + DI * pow(au, 1.5) - fe * .03 * sin(f0);
+  let sl = (fe * A * (PW * pow(au, PW - 1.) * sin(fp) - LAG * pow(au, PW) * cos(fp)) + DI * 1.5 * sqrt(au)) * sign(u);
   let ln = normalize(vec3f(i.n.x - sl * i.n.y, i.n.y + sl * i.n.x, i.n.z));
   let w = P + (S * l.x + Up * l.y + T * l.z) * sz;
   o.cp = g.vp * vec4f(w, 1.); o.wp = w; o.n = S * ln.x + Up * ln.y + T * ln.z; o.op = i.p; o.sd = i.b.w;
@@ -609,9 +639,8 @@ struct VO { @builtin(position) cp: vec4f, @location(0) wp: vec3f, @location(1) n
   let z = zone(i.wp); let vv = vol(i.wp);
   let top = ss(-.2, .25, normalize(i.n).y);
   let au = abs(i.op.x);
-  let gill = ss(.25, .0, abs(au - .13) * 8.) * ss(.04, .12, i.op.z) * ss(.34, .26, i.op.z) * ss(.2, .8, sin(i.op.z * 110.));
-  // soaring birds (the mantas of the ocean): dark above, paler below
-  var belly = vec3f(.16, .13, .10) * (.6 + .6 * tx.b) * (1. - .5 * gill);
+  // soaring birds: dark above, paler below, dark flight feathers toward the wing tips
+  var belly = vec3f(.16, .13, .10) * (.6 + .6 * tx.b);
   belly = mix(belly, vec3f(.05, .04, .035), sat(ss(.45, .9, au + tx.a * .35)));
   var back = vec3f(.045, .035, .03) + vec3f(.08, .06, .04) * ss(.5, .75, tx.a);
   var alb = mix(belly, back, top);

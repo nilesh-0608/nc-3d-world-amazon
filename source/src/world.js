@@ -473,36 +473,48 @@ function meshCoral(fan, lo = LV > 1) {
   return m;
 }
 
-// manta ray: span along x (half span = 1), nose +z; aux = span coordinate for the flap animation
+// soaring bird (the function keeps its ocean name: main.js pushes it as mesh 12 for the pManta pipeline). Span along
+// x (half span = 1), beak +z. aux = signed span coordinate, which drives the flap in vsManta; 0 on the body and tail.
 function meshManta() {
-  const m = new Mesh(), NU = 72, M = 22, rings = [];
+  const m = new Mesh(), NU = 24, M = 8, rings = [];
   for (let j = 0; j <= NU; j++) {
     const u = j / NU * 2 - 1, au = abs(u);
-    let zl = 0.52 - 0.74 * pow(au, 1.35) + 0.07 * exp(-pow((au - 0.13) / 0.05, 2)) - 0.05 * exp(-pow(au / 0.05, 2)) - 0.08 * pow(au, 5);
-    const zt = -0.5 + 0.3 * pow(au, 0.8) + 0.02 - 0.08 * pow(au, 5);
+    // leading edge runs forward to the wrist at 35 % span, then sweeps back; the trailing edge sweeps back all the way
+    let zl = 0.12 + 0.08 * sstep(0, 0.35, au) - 0.42 * pow(max(au - 0.35, 0) / 0.65, 1.5);
+    const zt = -0.15 - 0.15 * au * au;
     if (zl < zt + 0.004) zl = zt + 0.004;
-    const th = 0.08 * pow(1 - au, 1.15) + 0.004 + 0.12 * exp(-pow(u / 0.2, 2)), ring = [];
+    const th = 0.014 * (1 - au) + 0.003, ring = [];
     for (let k = 0; k < M; k++) { const a = k / M * TAU; ring.push(m.v(u, th * sin(a) * (0.62 + 0.38 * cos(a)), mix(zt, zl, 0.5 + 0.5 * cos(a)), u)); }
     rings.push(ring);
   }
   for (let j = 0; j < NU; j++) for (let k = 0; k < M; k++) { const k2 = (k + 1) % M; m.quad(rings[j][k], rings[j + 1][k], rings[j + 1][k2], rings[j][k2]); }
-  const tail = []; for (let i = 0; i <= 8; i++) tail.push([0, 0, -0.42 - i * 0.19]);
-  const n0 = m.p.length / 3;
-  m.tube(tail, (k) => 0.016 * (1 - k / 9), 4, true);
-  for (let k = n0; k < m.aux.length; k++) m.aux[k] = 0;
-  for (const sx of [-1, 1]) { // cephalic fins
-    const n1 = m.p.length / 3;
-    m.tube([[sx * 0.12, -0.02, 0.48], [sx * 0.135, -0.05, 0.6], [sx * 0.115, -0.09, 0.69], [sx * 0.085, -0.125, 0.74]], (k) => 0.045 * (1 - k / 4.4), 6, true);
-    for (let k = n1; k < m.aux.length; k++) m.aux[k] = sx * 0.1;
+  // beak, head, body
+  const BR = [0.004, 0.03, 0.042, 0.07, 0.066, 0.034, 0.014];
+  m.tube([[0, 0, 0.43], [0, 0.004, 0.37], [0, 0.004, 0.3], [0, -0.006, 0.12], [0, -0.01, -0.08], [0, -0.002, -0.24], [0, 0, -0.31]], (k) => BR[k], 6, true, () => 0);
+  // fanned tail: two layers facing up and down (fsManta picks back or belly from the normal)
+  const TF = [[-0.19, -0.56], [-0.1, -0.63], [0, -0.65], [0.1, -0.63], [0.19, -0.56]];
+  for (const y of [0.005, -0.005]) {
+    const l = m.v(-0.04, y, -0.23, 0), r = m.v(0.04, y, -0.23, 0), q = TF.map((p) => m.v(p[0], y, p[1], 0));
+    for (const [a, b, c] of [[l, q[1], q[0]], [l, q[2], q[1]], [l, r, q[2]], [r, q[3], q[2]], [r, q[4], q[3]]]) { if (y > 0) m.tri(a, b, c); else m.tri(a, c, b); }
   }
   return m;
 }
+// butterfly (the function keeps its ocean name: main.js pushes it as mesh 13 for the pFish pipeline). Head +x, wings
+// flat in the xz plane. aux = signed distance from the body axis (+z wing > 0, -z wing < 0, body and antennae 0):
+// vsFish rotates each wing about the body axis by an angle whose sign and phase lag come from it. 31 triangles.
 function meshFish() {
   const m = new Mesh();
-  const X = [0.5, 0.3, 0.05, -0.22, -0.34], H = [0.01, 0.13, 0.17, 0.09, 0.035], Wd = [0.01, 0.05, 0.065, 0.03, 0.012], rings = [];
-  for (let i = 0; i < 5; i++) { const r = []; for (let k = 0; k < 6; k++) { const a = k / 6 * TAU; r.push(m.v(X[i], sin(a) * H[i], cos(a) * Wd[i])); } rings.push(r); }
-  for (let i = 0; i < 4; i++) for (let k = 0; k < 6; k++) { const k2 = (k + 1) % 6; m.quad(rings[i][k], rings[i + 1][k], rings[i + 1][k2], rings[i][k2]); }
-  const a = m.v(-0.33, 0, 0), b = m.v(-0.56, 0.2, 0), c = m.v(-0.47, 0, 0), d = m.v(-0.56, -0.2, 0);
-  m.tri(a, b, c); m.tri(a, c, d);
+  const BR = [0.026, 0.042, 0.012];
+  m.tube([[0.24, 0, 0], [0.04, 0, 0], [-0.32, 0, 0]], (k) => BR[k], 3, true, () => 0);
+  const FW = [[0.12, 0.03], [0.4, 0.5], [0.42, 0.95], [0.13, 0.88], [-0.07, 0.55], [-0.04, 0.03]]; // forewing: x, |z|
+  const HW = [[-0.02, 0.03], [-0.05, 0.6], [-0.33, 0.62], [-0.52, 0.36], [-0.4, 0.07]];           // hindwing
+  for (const sg of [1, -1]) {
+    for (const [W, y] of [[FW, 0.006], [HW, 0]]) {
+      const q = W.map((p) => m.v(p[0], y, p[1] * sg, p[1] * sg));
+      for (let k = 1; k < q.length - 1; k++) { if (sg > 0) m.tri(q[0], q[k + 1], q[k]); else m.tri(q[0], q[k], q[k + 1]); }
+    }
+    const a = m.v(0.22, 0.02, 0.008 * sg, 0), b = m.v(0.22, 0.02, 0.024 * sg, 0), c = m.v(0.42, 0.08, 0.11 * sg, 0); // antenna
+    if (sg > 0) m.tri(a, c, b); else m.tri(a, b, c);
+  }
   return m;
 }
