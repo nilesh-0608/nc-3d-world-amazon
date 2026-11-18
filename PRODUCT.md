@@ -95,6 +95,8 @@ licensed.
 ## Evidence on Hand
 
 - The working scene: `index.html`, built from `source/`.
+- Published at <https://github.com/nilesh-0608/nc-3d-world-amazon>, live on GitHub Pages at
+  <https://nilesh-0608.github.io/nc-3d-world-amazon/>.
 - `prompt.md` — the prompts the project was built from, the verification protocol, and a tuning
   table. Written so the process can be replicated.
 - `LICENSE` — MIT, inherited.

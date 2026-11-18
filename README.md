@@ -8,6 +8,10 @@ files — the whole world is generated from mathematics when the page opens.
 
 ## Try it
 
+**[Open the forest →](https://nilesh-0608.github.io/nc-3d-world-amazon/)**
+
+Or run it offline:
+
 1. Download [`index.html`](index.html).
 2. Open it in **Chrome** or **Edge** on a desktop computer.
 3. Wait a few seconds while the world is built, then press **Begin survey**.
