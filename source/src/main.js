@@ -267,6 +267,19 @@ for (const p of POSES) flyPts.push([p[0], -40, p[2]]);
 await say('Growing the forest…', 0.73, 2500);
 const Wd = makeWorld(D, T, flyPts, POSES);
 for (const p of POSES) p[1] += Wd.gy(p[0], p[2]);
+// The rift (W_RIFT in shaders.js) is stood on the ground under it, then compiled with that height in it. Inside an
+// error scope: a mistake in its shader must cost the rift and nothing else, and an invalid pipeline used in the
+// scene pass would lose the whole frame. With pRift null it is neither drawn nor a way out (see frame()).
+let pRift = null;
+{
+  const y = Wd.gy(RIFT[0], RIFT[2]);
+  RIFT[1] = (y > -53 && y < -38 ? y : -48) + RIFT_UP;
+  let p = null, err = null;
+  device.pushErrorScope('validation');
+  try { p = scenePipe(mod(W_RIFT()), 'vs', 'fs', [], { strip: true, blend: ADD }); } catch (e) { err = e; }
+  try { err = await device.popErrorScope() || err; } catch (e) { err = e; }
+  if (err) console.warn('rift: not drawn', err.message || err); else pRift = p;
+}
 D = Wd.gy = T.smp = null; // with gy goes the generator's working memory (about 200 MB)
 
 await say('Raising the trees…', 0.94, 1200);
@@ -480,6 +493,8 @@ function render() {
   r.setPipeline(pBub); r.setVertexBuffer(0, ibBubbles); r.draw(4, nBub);
   r.setPipeline(pGl); r.setVertexBuffer(0, ibGl); r.draw(4, nGl);
   r.setPipeline(pSnow); r.setVertexBuffer(0, ibSnowB); r.draw(4, nSnow);
+  // the rift, after the insects and the pollen: additive as they are, and like them hidden by anything in front of it
+  if (pRift) { r.setPipeline(pRift); r.draw(4); }
   r.end();
   // light shafts
   r = e.beginRenderPass(passRays); r.setPipeline(pRays); r.setBindGroup(0, bgRays); r.draw(3); r.end();
@@ -569,6 +584,14 @@ function frame(now) {
     y = y < -52 ? -52 : y > 2.4 ? 2.4 : y; // up through the canopy (y = CAN) into the open; the collision grid ends at +4
     F[YAW] = yaw; F[PIT] = pitch; F[VX] = vx; F[VY] = vy; F[VZ] = vz; F[MX] = x - F[CX]; F[MY] = y - F[CY]; F[MZ] = z - F[CZ];
     collide();
+    // the rift: flying into it leaves for the other world. Only an armed trigger may fire, and it is armed by the
+    // camera being outside RIFT_R1 (wider than the trigger, so its boundary cannot flicker): arriving through the
+    // rift starts disarmed inside it. Scalars only, nothing allocated.
+    if (pRift && !navigating) {
+      const qx = F[CX] - RIFT[0], qz = F[CZ] - RIFT[2], qy = abs(F[CY] - RIFT[1]), q2 = qx * qx + qz * qz;
+      if (!riftArmed) riftArmed = q2 > RIFT_R1 * RIFT_R1 || qy > RIFT_HH + 1.5;
+      else if (!menu && q2 < RIFT_R0 * RIFT_R0 && qy < RIFT_HH - 0.5) riftGo();
+    }
   }
   render();
   if (hud) {
@@ -598,7 +621,8 @@ addEventListener('keyup', (e) => key(e, 0));
 const release = () => { kf = kb = kl = kr = ku = kd = ks = 0; tId = -1; tN = 0; };
 const capture = () => { sound(); const p = canvas.requestPointerLock({ unadjustedMovement: true }); if (p && p.catch) p.catch(() => canvas.requestPointerLock()).catch(() => 0); };
 canvas.addEventListener('click', capture);
-addEventListener('mousemove', (e) => { if (document.pointerLockElement === canvas) { mdx += e.movementX; mdy += e.movementY; } });
+// riftLook: after arriving through the rift the view follows the free cursor until the canvas has the mouse (below)
+addEventListener('mousemove', (e) => { if (document.pointerLockElement === canvas || (riftLook && !menu)) { mdx += e.movementX; mdy += e.movementY; } });
 addEventListener('blur', release);
 const touch = (e) => {
   e.preventDefault(); sound(); tN = e.touches.length;
@@ -634,10 +658,67 @@ bGo.onclick = go; $('o').onclick = () => ui(true);
 $('q').querySelectorAll('button').forEach((b, i) => { if (i === 2 - LV) b.className = 'on'; else b.onclick = () => { keep('ncam', 2 - i); location.reload(); }; });
 document.addEventListener('pointerlockchange', () => ui(!document.pointerLockElement));
 
+// ---------------------------------------------------------------- the rift: the way to the other world, and back
+// The protocol, the same on both sides:
+//   leaving   flying into the rift goes to RIFT_TO + '#rift' (the other world's folder: its published name on
+//             github.io, its working name on a local server)
+//   arriving  a page opened with '#rift' shows its loading line as always but no start screen: once the world is
+//             built it starts by itself, the camera RIFT_OUT metres in front of its own rift, facing away from it
+//             and drifting on at RIFT_V m/s (about 1.5 m: enough to carry it out of RIFT_R1 at any frame rate)
+//   guard     arriving, the camera is inside the trigger, so the trigger starts disarmed and frame() arms it once
+//             the camera has left RIFT_R1. 'navigating' is set the moment the page leaves: one crossing, one jump.
+// Everything here is behind a try: this scope is shared with the renderer.
+const RIFT_TO = location.hostname.endsWith('github.io') ? '../nc-3d-world-volcano/' : '../volcano-test/';
+const RIFT_R0 = 2.2, RIFT_R1 = 3.4;          // trigger radius around the seam (m), and the radius to leave before it arms
+const RIFT_OUT = 2.6, RIFT_V = 7, RIFT_EYE = 2.2; // arriving: metres in front of the rift, drift speed, eye height above the ground
+const RIFT_LOOK = [-16, 1.5, -36];           // ... facing this point (x, height above the eye, z): the next point of the camera path: you come out looking along it, deeper into the forest
+const riftIn = location.hash === '#rift';
+let riftArmed = !riftIn, navigating = false, riftLook = false;
+const riftGo = () => {
+  navigating = true;
+  try { location.assign(RIFT_TO + '#rift'); } catch (e) { navigating = false; riftArmed = false; console.warn('rift: could not leave', e); }
+};
+// Back from the other world, restored as it was left (inside the rift, mid-jump): disarm, as on an arrival
+addEventListener('pageshow', (e) => { if (e.persisted) { navigating = false; riftArmed = false; release(); } });
+const riftArrive = () => {
+  const ax = RIFT_LOOK[0] - RIFT[0], az = RIFT_LOOK[2] - RIFT[2], al = hypot(ax, az) || 1, ey = RIFT[1] - RIFT_UP + RIFT_EYE;
+  lookAt(RIFT[0] + ax / al * RIFT_OUT, ey, RIFT[2] + az / al * RIFT_OUT, RIFT_LOOK[0], ey + RIFT_LOOK[1], RIFT_LOOK[2]);
+  F[VX] = ax / al * RIFT_V; F[VY] = 0; F[VZ] = az / al * RIFT_V;
+};
+// A gesture does not survive the navigation, so an arriving page can neither take the mouse nor start the sound by
+// itself. The first mouse move, button or key asks for both through capture(), as Begin does. Browsers refuse a
+// lock asked for from a mere mouse move, so that is tried once, while buttons and keys keep asking until the canvas
+// has the mouse; until then the view follows the free cursor (riftLook). Nobody is asked to click anything.
+const riftHands = () => {
+  if (mob) return; // touch needs no lock: the canvas handlers work as they are
+  const EV = ['mousemove', 'mousedown', 'keydown'];
+  let moved = false;
+  const done = () => { riftLook = false; for (const n of EV) removeEventListener(n, ask); document.removeEventListener('pointerlockchange', got); };
+  const got = () => { if (document.pointerLockElement === canvas) done(); };
+  const ask = (e) => {
+    if (document.pointerLockElement === canvas) { done(); return; }
+    if (menu) return;
+    if (e.type === 'mousemove') { if (moved) return; moved = true; }
+    // a button or a key aimed at a control (the menu button) is that control's, not a request for the mouse
+    else if (e.target !== canvas && e.target !== body) return;
+    try { capture(); } catch (err) { console.warn('rift: the mouse was not captured', err); }
+  };
+  riftLook = true;
+  for (const n of EV) addEventListener(n, ask);
+  document.addEventListener('pointerlockchange', got);
+};
+
 // draw the first frame and wait for the GPU to finish it (pipelines get compiled on first use) before the reveal
-lookAt(...POSES[0]);
+let riftUp = false;
+if (riftIn) try { riftArrive(); riftUp = true; } catch (e) { console.warn('rift: arrival failed', e); }
+if (!riftUp) lookAt(...POSES[0]);
 await say('Letting the light in…', 1, 400);
 render(); await Q.onSubmittedWorkDone();
 setTimeout(keep, 15e3, 'ncamLoad', ''); // the load counts as survived after 15 s of frames
-ui(true);
+// arrived through the rift: straight into the scene, no start screen and nothing to press. The hash is dropped, so
+// a reload is an ordinary visit.
+if (riftUp) {
+  try { bGo.textContent = 'Resume survey'; ui(false); riftHands(); } catch (e) { console.warn('rift: arrival failed', e); ui(true); }
+  try { history.replaceState(null, '', location.pathname + location.search); } catch {}
+} else ui(true);
 requestAnimationFrame((t) => { F[LAST] = t; requestAnimationFrame(frame); });
